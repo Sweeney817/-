@@ -19,6 +19,8 @@
 
 右键橘猫可选择陪玩、喝水、休息或打招呼；双击也能打招呼。左键拖动位置，滚轮调整大小，F1 截图。暂停时选择互动会自动恢复活动。
 
+猫咪活动约 3–5 分钟后会自动使用猫砂盆，依次表现排便和埋砂；右键选择“去猫砂盆”也可立即触发。暂停时不会累积等待时间。猫砂盆与砂粒由程序绘制，猫咪动作复用已有图集。
+
 在 Windows 上安装 Python 和 Pillow 后，可运行 `python app.py`。翻译所需的 OCR 组件为 `rapidocr_onnxruntime`。运行 `powershell -ExecutionPolicy Bypass -File .\build.ps1` 可安装打包依赖并生成 EXE；也可通过环境变量 `ORANGE_CAT_PYTHON` 指定 Python 可执行文件。打包使用仓库中现有的图集，不需要重新生成素材。
 
 开发检查：运行 `python -m unittest test_pet`；`python verify_pet.py` 需要交互式 Windows 桌面，并会生成截图和验证结果。

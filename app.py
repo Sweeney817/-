@@ -30,6 +30,8 @@ MIN_SCALE = 0.45
 MAX_SCALE = 1.1
 TICK_MS = 16
 IDLE_TICK_MS = 100
+LITTER_DURATION = 12.0
+LITTER_INTERVAL = (180.0, 300.0)
 
 ROW_FRAMES = {
     "idle": (0, 4),
@@ -129,6 +131,7 @@ class OrangeCatPet:
         self.current_frame_key: tuple[str, int] | None = ("idle", 0)
         self.last_window_position: tuple[int, int] | None = None
         self._create_water_bowl()
+        self._create_litter_box()
 
         self.bounds = DesktopBounds.current()
         default_x = self.bounds.left + self.bounds.width - self.window_w - 72
@@ -144,6 +147,8 @@ class OrangeCatPet:
         self.energy = 0.82
         self.thirst = 0.18
         self.play_streak = 0
+        # Count active time only, so pause and sleep do not cause a sudden trip.
+        self.litter_countdown = random.uniform(*LITTER_INTERVAL)
         self.paused = False
         self.dragging = False
         self.drag_pointer = (0, 0)
@@ -215,6 +220,47 @@ class OrangeCatPet:
         self.canvas.coords("bowl_water", center_x - 21*self.scale, bottom - 13*self.scale, center_x + 21*self.scale, bottom - 5*self.scale)
         self.canvas.coords("bowl_glint", center_x - 16*self.scale, bottom - 12*self.scale, center_x + 16*self.scale, bottom - 7*self.scale)
 
+    def _create_litter_box(self) -> None:
+        c = self.canvas
+        # The tray is drawn in front of the cat's feet so it appears inside it.
+        c.create_polygon(0, 0, 1, 1, 2, 2, fill="#83a9ad", outline="#405d60", width=2, tags=("litter", "litter_base"))
+        c.create_oval(0, 0, 1, 1, fill="#d6c19b", outline="#788f89", width=2, tags=("litter", "litter_sand"))
+        c.create_oval(0, 0, 1, 1, fill="#76503b", outline="#5c3a29", tags=("litter", "litter_poop"))
+        c.create_oval(0, 0, 1, 1, fill="#d6c19b", outline="", tags=("litter", "litter_cover"))
+        for i in range(3):
+            c.create_oval(0, 0, 1, 1, fill="#ead7b2", outline="", tags=("litter", f"litter_grain_{i}"))
+        c.create_line(0, 0, 1, 1, fill="#526f70", width=2, smooth=True, tags=("litter", "litter_rim"))
+        self._position_litter_box()
+        c.itemconfigure("litter", state="hidden")
+
+    def _position_litter_box(self) -> None:
+        c, s = self.canvas, self.scale
+        x, bottom = self.window_w / 2, self.window_h - 4
+        c.coords("litter_base", x-79*s, bottom-35*s, x-70*s, bottom-2*s,
+                 x+70*s, bottom-2*s, x+79*s, bottom-35*s)
+        c.coords("litter_sand", x-79*s, bottom-50*s, x+79*s, bottom-22*s)
+        c.coords("litter_rim", x-78*s, bottom-34*s, x-55*s, bottom-23*s,
+                 x, bottom-20*s, x+55*s, bottom-23*s, x+78*s, bottom-34*s)
+
+    def _update_litter_box(self, elapsed: float) -> None:
+        c, s = self.canvas, self.scale
+        x, bottom = self.window_w / 2 - 48 * s, self.window_h - 4
+        # A small dropping appears after the cat settles. As it paws the sand,
+        # a growing mound covers it and three grains move across the tray.
+        c.coords("litter_poop", x-8*s, bottom-40*s, x+8*s, bottom-29*s)
+        c.itemconfigure("litter_poop", state="normal" if elapsed >= 2.5 else "hidden")
+        cover = min(max((elapsed - 7.0) / 3.5, 0.0), 1.0)
+        c.coords("litter_cover", x-9*s, bottom-(29+12*cover)*s, x+9*s, bottom-28*s)
+        c.itemconfigure("litter_cover", state="normal" if cover > 0 else "hidden")
+        for i in range(3):
+            tag = f"litter_grain_{i}"
+            active = 6.0 <= elapsed < 10.8
+            phase = (elapsed * 2.4 + i / 3) % 1
+            gx = x + (phase * 30 - 10) * s
+            gy = bottom - (40 + 8 * math.sin(math.pi * phase)) * s
+            c.coords(tag, gx, gy, gx + 3*s, gy + 2*s)
+            c.itemconfigure(tag, state="normal" if active else "hidden")
+
     def _update_window_size(self) -> None:
         self.window_w = round(CELL_W * self.scale + 44)
         self.window_h = round(CELL_H * self.scale + 28)
@@ -255,6 +301,7 @@ class OrangeCatPet:
         self.menu.add_command(label="给它喝水", command=lambda: self._interact("drink", 6.0))
         self.menu.add_command(label="让它休息", command=lambda: self._interact("rest", 10.0))
         self.menu.add_command(label="和它打招呼", command=lambda: self._interact("wave", 3.6))
+        self.menu.add_command(label="去猫砂盆", command=lambda: self._interact("litter", LITTER_DURATION))
         self.menu.add_command(label="检查更新", command=self.updater.check)
         size_menu = tk.Menu(self.menu, tearoff=False)
         size_menu.add_command(label="迷你", command=lambda: self._set_scale(0.5))
@@ -291,6 +338,9 @@ class OrangeCatPet:
         self.canvas.configure(width=self.window_w, height=self.window_h)
         self.canvas.coords(self.image_item, self.window_w // 2, self.window_h - 4)
         self._position_water_bowl()
+        self._position_litter_box()
+        if self.state == "litter" and not self.paused:
+            self._update_litter_box(time.perf_counter() - self.state_started)
         self._clamp_position()
         self.root.geometry(f"{self.window_w}x{self.window_h}")
         self.root.update_idletasks()
@@ -353,6 +403,8 @@ class OrangeCatPet:
 
     def _enter_state(self, state: str, duration: float | None = None) -> None:
         now = time.perf_counter()
+        if self.state == "litter" and state != "litter" and self.litter_countdown <= 0:
+            self.litter_countdown = 45.0
         self.state = state
         self.state_started = now
         if duration is None:
@@ -366,17 +418,24 @@ class OrangeCatPet:
                 "observe": (3.0, 6.2),
                 "play": (4.2, 7.2),
                 "drink": (5.5, 8.5),
+                "litter": (LITTER_DURATION, LITTER_DURATION),
             }
             low, high = ranges[state]
             duration = random.uniform(low, high)
         self.state_duration = duration
         self.canvas.itemconfigure("bowl", state="normal" if state == "drink" else "hidden")
+        self.canvas.itemconfigure("litter", state="normal" if state == "litter" else "hidden")
+        if state == "litter":
+            self._update_litter_box(0)
         if state == "play":
             self.play_streak += 1
         elif state not in {"jump", "wave"}:
             self.play_streak = max(0, self.play_streak - 1)
 
     def _choose_next_state(self) -> None:
+        if self.litter_countdown <= 0:
+            self._enter_state("litter")
+            return
         if self.thirst >= 0.76 or (self.play_streak >= 2 and self.thirst >= 0.46):
             self._enter_state("drink")
             return
@@ -421,9 +480,13 @@ class OrangeCatPet:
             elapsed = now - self.state_started
             self._update_needs(dt)
             if elapsed >= self.state_duration:
+                if self.state == "litter":
+                    self.litter_countdown = random.uniform(*LITTER_INTERVAL)
                 self._choose_next_state()
                 elapsed = 0.0
             self._update_position(dt, elapsed)
+            if self.state == "litter":
+                self._update_litter_box(elapsed)
             self._update_frame(elapsed)
         elif self.paused:
             elapsed = now - self.state_started
@@ -435,6 +498,8 @@ class OrangeCatPet:
         self.root.after(TICK_MS if moving else IDLE_TICK_MS, self._tick)
 
     def _update_needs(self, dt: float) -> None:
+        if self.state != "litter":
+            self.litter_countdown -= dt
         self.thirst = min(1.0, self.thirst + dt * 0.0048)
         if self.state.startswith("walk"):
             self.energy = max(0.0, self.energy - dt * 0.008)
@@ -475,6 +540,8 @@ class OrangeCatPet:
 
     def _update_frame(self, elapsed: float, forced_state: str | None = None) -> None:
         state = forced_state or self.state
+        if state == "litter":
+            state = "idle" if elapsed < 6.0 else "play"
         frames = self.frames[state]
         if state == "jump":
             progress = min(max(elapsed / max(self.state_duration, 0.01), 0.0), 1.0)
@@ -500,6 +567,9 @@ class OrangeCatPet:
         self.state_started = time.perf_counter()
         if self.paused:
             self.canvas.itemconfigure("bowl", state="hidden")
+            self.canvas.itemconfigure("litter", state="hidden")
+            if self.state == "litter" and self.litter_countdown <= 0:
+                self.litter_countdown = 45.0
             self._set_window_position(self.x, self.base_y)
             self._update_frame(0, forced_state="idle")
         else:

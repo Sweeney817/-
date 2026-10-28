@@ -101,7 +101,12 @@ $moved = $false
 try {
     Wait-Process -Id $PetPid -ErrorAction SilentlyContinue
     Copy-Item -LiteralPath $Download -Destination $staged -Force
-    Move-Item -LiteralPath $Target -Destination $backup
+    # PyInstaller's one-file launcher may still hold the EXE briefly after
+    # the Python child exits. Retry while Windows releases the file handle.
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        try { Move-Item -LiteralPath $Target -Destination $backup -ErrorAction Stop; break }
+        catch { if ($attempt -eq 19) { throw }; Start-Sleep -Milliseconds 500 }
+    }
     $moved = $true
     try { Move-Item -LiteralPath $staged -Destination $Target }
     catch { Move-Item -LiteralPath $backup -Destination $Target; throw }

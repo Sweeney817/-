@@ -1,0 +1,4 @@
+__pycache__/
+build/
+dist/
+qa/smoke-settings.json

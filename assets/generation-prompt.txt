@@ -1,0 +1,12 @@
+Create a production-ready transparent animation sprite atlas of the SAME cat in the attached reference, 六六. Reference is for character identity: realistic soft ginger fur, green/olive eyes, pink nose and pads, medium slim build, unmistakable BIG broad classic-tabby orange swirl / bullseye marble on its flank. NOT thin parallel tiger stripes, NOT a cartoon 3D cat, no sticker border. Realistic illustration matching reference.
+EXACT layout: FOUR columns and EIGHT rows, total 32 isolated whole-body cat sprites, all cells populated. Canvas portrait aspect ratio width:height = 8:13, ideally 1024x1664. Equal cells 256px wide x208px high. CAT MUST OCCUPY ONLY CENTRAL 68% OF EACH CELL WIDTH AND 85% HEIGHT. There MUST be WIDE COMPLETELY TRANSPARENT GUTTERS between ALL cats. Each cat completely isolated from every other. At least 30px clear transparent space at left/right of each cell. Whole tails and paws must be inside cells, never overlap adjacent frames.
+Exactly 4 frames in each row:
+Row 1: idle seated three-quarter left view: eyes open, half blink, closed blink, open. Consistent body and ground contact.
+Row 2: WALK CYCLE facing RIGHT, side view four leg movement with distinct foot positions across four frames. Long body and tail fit inside central 68% cell width. Big side swirl.
+Row 3: seated FRONT paw wave: down, halfway raised, up showing pink pad, halfway lowered.
+Row 4: jump: crouch, takeoff, midair forelegs bent, landing. Full cat and tail visible.
+Row 5: resting lying down facing left like reference: relaxed eyes open, half closed, closed, half open.
+Row 6: seated observe: look left, center, up, center.
+Row 7: playful: seated reaching paw forward, farther forward, paw raised, retracting.
+Row 8: drink: standing in right-side profile bent head down near bottom right of cell as if lapping invisible water, four slightly different tongue/head positions. No bowl.
+TRUE RGBA transparent background, NO white, NO shadow, NO frame borders, NO text, NO labels, NO props, NO colored artifacts. Quiet natural detailed fur. Character consistent across all 32 frames. Prioritize full-body completeness and WIDE TRANSPARENT MARGINS over large cats.

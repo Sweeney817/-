@@ -28,6 +28,7 @@ DEFAULT_SCALE = 0.8
 MIN_SCALE = 0.45
 MAX_SCALE = 1.1
 TICK_MS = 16
+IDLE_TICK_MS = 100
 
 ROW_FRAMES = {
     "idle": (0, 4),
@@ -152,7 +153,7 @@ class OrangeCatPet:
         self._bind_controls()
         self.screenshot_tool = ScreenshotController(self)
 
-        self.root.geometry(f"{self.window_w}x{self.window_h}+{round(self.x)}+{round(self.base_y)}")
+        self.root.geometry(f"{self.window_w}x{self.window_h}")
         self.root.deiconify()
         self.root.update_idletasks()
         self.root.attributes("-topmost", self.topmost_var.get())
@@ -164,17 +165,18 @@ class OrangeCatPet:
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
 
     def _load_frames(self) -> dict[str, list[ImageTk.PhotoImage]]:
-        atlas = Image.open(resource_path("spritesheet.png")).convert("RGBA")
+        with Image.open(resource_path("spritesheet.png")) as source:
+            atlas = source.convert("RGBA")
         expected = (CELL_W * ATLAS_COLUMNS, CELL_H * len(ROW_FRAMES))
         if atlas.size != expected:
             raise ValueError(f"动画图集尺寸错误：应为 {expected[0]}x{expected[1]}")
 
         target = (round(CELL_W * self.scale), round(CELL_H * self.scale))
         loaded: dict[str, list[ImageTk.PhotoImage]] = {}
-        states = dict(ROW_FRAMES)
-        states["walk_left"] = ROW_FRAMES["walk_right"]
-        for state, (row, count) in states.items():
+        alpha_lut = [0] * 72 + [255] * 184
+        for state, (row, count) in ROW_FRAMES.items():
             state_frames = []
+            left_frames = []
             for column in range(count):
                 box = (
                     column * CELL_W,
@@ -183,15 +185,17 @@ class OrangeCatPet:
                     (row + 1) * CELL_H,
                 )
                 frame = atlas.crop(box)
-                if state == "walk_left":
-                    frame = ImageOps.mirror(frame)
                 frame = frame.resize(target, Image.Resampling.LANCZOS)
                 # Windows color-key transparency blends semi-transparent edges with
                 # the key color. A binary alpha edge prevents the visible green rim.
-                alpha = frame.getchannel("A").point(lambda value: 255 if value >= 72 else 0)
+                alpha = frame.getchannel("A").point(alpha_lut)
                 frame.putalpha(alpha)
                 state_frames.append(ImageTk.PhotoImage(frame))
+                if state == "walk_right":
+                    left_frames.append(ImageTk.PhotoImage(ImageOps.mirror(frame)))
             loaded[state] = state_frames
+            if left_frames:
+                loaded["walk_left"] = left_frames
         return loaded
 
     def _create_water_bowl(self) -> None:
@@ -214,8 +218,17 @@ class OrangeCatPet:
 
     def _load_settings(self) -> dict:
         try:
-            return json.loads(settings_path().read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            data = json.loads(settings_path().read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            for key in ("scale", "x", "y"):
+                value = data.get(key)
+                if key in data and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)):
+                    data.pop(key, None)
+            if not isinstance(data.get("topmost", True), bool):
+                data.pop("topmost", None)
+            return data
+        except (OSError, ValueError, OverflowError):
             return {}
 
     def _save_settings(self) -> None:
@@ -235,7 +248,10 @@ class OrangeCatPet:
         self.menu.add_command(label="截图（F1）", command=self.start_screenshot)
         self.menu.add_separator()
         self.menu.add_command(label="暂停活动", command=self.toggle_pause)
-        self.menu.add_command(label="陪它玩一下", command=lambda: self._enter_state("play", 5.0))
+        self.menu.add_command(label="陪它玩一下", command=lambda: self._interact("play", 5.0))
+        self.menu.add_command(label="给它喝水", command=lambda: self._interact("drink", 6.0))
+        self.menu.add_command(label="让它休息", command=lambda: self._interact("rest", 10.0))
+        self.menu.add_command(label="和它打招呼", command=lambda: self._interact("wave", 3.6))
         size_menu = tk.Menu(self.menu, tearoff=False)
         size_menu.add_command(label="迷你", command=lambda: self._set_scale(0.5))
         size_menu.add_command(label="很小", command=lambda: self._set_scale(0.65))
@@ -253,7 +269,7 @@ class OrangeCatPet:
         self.canvas.bind("<B1-Motion>", self._drag_move)
         self.canvas.bind("<ButtonRelease-1>", self._drag_end)
         self.canvas.bind("<Button-3>", self._show_menu)
-        self.canvas.bind("<Double-Button-1>", lambda _event: self._enter_state("wave", 3.6))
+        self.canvas.bind("<Double-Button-1>", lambda _event: self._interact("wave", 3.6))
         self.canvas.bind("<MouseWheel>", self._mousewheel_scale)
 
     def _mousewheel_scale(self, event: tk.Event) -> None:
@@ -272,11 +288,11 @@ class OrangeCatPet:
         self.canvas.coords(self.image_item, self.window_w // 2, self.window_h - 4)
         self._position_water_bowl()
         self._clamp_position()
-        self.root.geometry(
-            f"{self.window_w}x{self.window_h}+{round(self.x)}+{round(self.base_y)}"
-        )
+        self.root.geometry(f"{self.window_w}x{self.window_h}")
         self.root.update_idletasks()
-        self._update_frame(time.perf_counter() - self.state_started)
+        self.last_window_position = None
+        self._set_window_position(self.x, self.base_y)
+        self._update_frame(time.perf_counter() - self.state_started, forced_state="idle" if self.paused else None)
         self._save_settings()
 
     def _show_menu(self, event: tk.Event) -> None:
@@ -288,6 +304,7 @@ class OrangeCatPet:
 
     def _drag_start(self, event: tk.Event) -> None:
         self.dragging = True
+        self.drag_started = time.perf_counter()
         self.drag_pointer = (event.x_root, event.y_root)
         self.drag_origin = (self.x, self.base_y)
 
@@ -300,6 +317,8 @@ class OrangeCatPet:
         self._set_window_position(self.x, self.base_y)
 
     def _drag_end(self, _event: tk.Event) -> None:
+        if self.dragging:
+            self.state_started += time.perf_counter() - self.drag_started
         self.dragging = False
         self._save_settings()
 
@@ -314,7 +333,7 @@ class OrangeCatPet:
         if self.last_window_position == target:
             return
         if not hasattr(self, "hwnd"):
-            self.root.geometry(f"{self.window_w}x{self.window_h}+{target[0]}+{target[1]}")
+            self.root.geometry(f"{self.window_w}x{self.window_h}{target[0]:+d}{target[1]:+d}")
             self.last_window_position = target
             return
         ctypes.windll.user32.SetWindowPos(
@@ -381,14 +400,17 @@ class OrangeCatPet:
             elif self.x > self.bounds.left + self.bounds.width - self.window_w - 36:
                 direction = "walk_left"
             else:
-                direction = "walk_right" if self.x < center and random.random() < 0.62 else "walk_left"
+                toward_center = random.random() < 0.62
+                direction = "walk_right" if (self.x < center) == toward_center else "walk_left"
             self._enter_state(direction)
         else:
             self._enter_state(action)
 
     def _tick(self) -> None:
         now = time.perf_counter()
-        dt = min(now - self.last_tick, 0.08)
+        # Limit catch-up after sleep or a blocked UI, while allowing the slower
+        # stationary timer to account for the full interval between ticks.
+        dt = min(now - self.last_tick, 0.25)
         self.last_tick = now
 
         if not self.paused and not self.dragging:
@@ -403,7 +425,10 @@ class OrangeCatPet:
             elapsed = now - self.state_started
             self._update_frame(elapsed, forced_state="idle")
 
-        self.root.after(TICK_MS, self._tick)
+        moving = not self.paused and not self.dragging and self.state in {
+            "walk_left", "walk_right", "jump", "play"
+        }
+        self.root.after(TICK_MS if moving else IDLE_TICK_MS, self._tick)
 
     def _update_needs(self, dt: float) -> None:
         self.thirst = min(1.0, self.thirst + dt * 0.0048)
@@ -458,10 +483,22 @@ class OrangeCatPet:
         self.canvas.itemconfigure(self.image_item, image=frames[index])
         self.current_frame_key = frame_key
 
+    def _interact(self, state: str, duration: float) -> None:
+        # Explicit interactions resume activity so their action is visible.
+        self.paused = False
+        self._enter_state(state, duration)
+        if self.dragging:
+            self.drag_started = self.state_started
+        self._update_frame(0)
+
     def toggle_pause(self) -> None:
         self.paused = not self.paused
         self.state_started = time.perf_counter()
-        if not self.paused:
+        if self.paused:
+            self.canvas.itemconfigure("bowl", state="hidden")
+            self._set_window_position(self.x, self.base_y)
+            self._update_frame(0, forced_state="idle")
+        else:
             self._enter_state("idle", 1.8)
 
     def _toggle_topmost(self) -> None:

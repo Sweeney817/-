@@ -86,6 +86,9 @@ def copy_image_to_clipboard(image: Image.Image) -> None:
     if not global_mem:
         raise OSError("无法分配剪贴板内存")
     locked = kernel32.GlobalLock(global_mem)
+    if not locked:
+        kernel32.GlobalFree(global_mem)
+        raise OSError("无法锁定剪贴板内存")
     ctypes.memmove(locked, dib, len(dib))
     kernel32.GlobalUnlock(global_mem)
     if not user32.OpenClipboard(None):
@@ -434,6 +437,7 @@ class ScreenshotOverlay:
         self.start = None
         self.selection = None
         self.crop_photo = None
+        self.selection_generation = 0
 
         self.window = tk.Toplevel(owner.root)
         self.window.overrideredirect(True)
@@ -464,6 +468,7 @@ class ScreenshotOverlay:
         self.window.focus_force()
 
     def _start_selection(self, event: tk.Event) -> None:
+        self.selection_generation += 1
         self.start = (event.x, event.y)
         self.selection = None
         self._remove_selection_items()
@@ -592,7 +597,12 @@ class ScreenshotOverlay:
     def translate(self) -> None:
         if hasattr(self, "toolbar_status"):
             self.toolbar_status.configure(text="识别翻译中...")
-        self.owner.screenshot_tool.translate_image(self._crop(), self._translation_finished)
+        generation = self.selection_generation
+        self.owner.screenshot_tool.translate_image(
+            self._crop(),
+            lambda status, original, translated: self._translation_finished(status, original, translated)
+            if generation == self.selection_generation else None,
+        )
 
     def _translation_finished(self, status: str, original: str, translated: str) -> None:
         if not self.window.winfo_exists():
@@ -648,6 +658,8 @@ class ScreenshotController:
         self.results: queue.SimpleQueue[tuple[str, str, str, object]] = queue.SimpleQueue()
         self.hotkey = F1Hotkey(self.requests)
         self.overlay = None
+        self.capture_job = None
+        self.closed = False
         self.pins: list[PinnedImage] = []
         self.poll_job = owner.root.after(80, self._poll_requests)
 
@@ -671,25 +683,28 @@ class ScreenshotController:
         self.poll_job = self.owner.root.after(80, self._poll_requests)
 
     def start_capture(self) -> None:
-        if self.overlay is not None:
+        if self.closed or self.overlay is not None or self.capture_job is not None:
             return
         self.owner.root.withdraw()
         self.owner.root.update_idletasks()
-        self.owner.root.after(260, self._capture_desktop)
+        self.capture_job = self.owner.root.after(260, self._capture_desktop)
 
     def _capture_desktop(self) -> None:
-        bounds = self.owner.bounds
-        screenshot = ImageGrab.grab(
-            bbox=(bounds.left, bounds.top, bounds.left + bounds.width, bounds.top + bounds.height),
-            all_screens=True,
-        ).convert("RGB")
-        self.overlay = ScreenshotOverlay(
-            self.owner,
-            screenshot,
-            bounds.left,
-            bounds.top,
-            self._capture_finished,
-        )
+        self.capture_job = None
+        if self.closed:
+            return
+        try:
+            bounds = self.owner.bounds
+            screenshot = ImageGrab.grab(
+                bbox=(bounds.left, bounds.top, bounds.left + bounds.width, bounds.top + bounds.height),
+                all_screens=True,
+            ).convert("RGB")
+            self.overlay = ScreenshotOverlay(
+                self.owner, screenshot, bounds.left, bounds.top, self._capture_finished,
+            )
+        except Exception as exc:
+            self._capture_finished()
+            messagebox.showerror("截图失败", str(exc), parent=self.owner.root)
 
     def _capture_finished(self) -> None:
         self.overlay = None
@@ -732,6 +747,10 @@ class ScreenshotController:
             self.pins.remove(pin)
 
     def close(self) -> None:
+        self.closed = True
+        if self.capture_job is not None:
+            self.owner.root.after_cancel(self.capture_job)
+            self.capture_job = None
         if self.poll_job:
             self.owner.root.after_cancel(self.poll_job)
         self.hotkey.close()

@@ -23,6 +23,8 @@
 
 新版使用六组六六动作图：猫砂盆、喝水、伸懒腰、揣手休息、打滚和挠痒，可随机出现，也可通过右键菜单触发。更新时显示下载百分比、安装文件复制进度和替换状态。
 
+六组动作使用统一画布与补间帧，调整了播放速度；原始图只有少量关键帧，大幅姿态变化仍可能有跳变。
+
 在 Windows 上安装 Python 和 Pillow 后，可运行 `python app.py`。翻译所需的 OCR 组件为 `rapidocr_onnxruntime`。运行 `powershell -ExecutionPolicy Bypass -File .\build.ps1` 可安装打包依赖并生成 EXE；也可通过环境变量 `ORANGE_CAT_PYTHON` 指定 Python 可执行文件。打包使用仓库中现有的图集，不需要重新生成素材。
 
 开发检查：运行 `python -m unittest test_pet`；`python verify_pet.py` 需要交互式 Windows 桌面，并会生成截图和验证结果。

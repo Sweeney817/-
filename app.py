@@ -24,13 +24,15 @@ DISPLAY_NAME = "橘猫桌面宠物"
 TRANSPARENT = "#01fe02"
 CELL_W = 192
 CELL_H = 208
+SEQUENCE_W = 256
+SEQUENCE_FRAMES = 29
 ATLAS_COLUMNS = 4
 DEFAULT_SCALE = 0.8
 MIN_SCALE = 0.45
 MAX_SCALE = 1.1
 TICK_MS = 16
 IDLE_TICK_MS = 100
-LITTER_DURATION = 12.0
+LITTER_DURATION = 4.0
 LITTER_INTERVAL = (180.0, 300.0)
 
 ROW_FRAMES = {
@@ -45,6 +47,8 @@ ROW_FRAMES = {
 }
 
 SEQUENCE_STATES = ("litter", "drink", "stretch", "loaf", "roll", "scratch")
+SEQUENCE_DURATIONS = {"litter": 4.0, "drink": 2.5, "stretch": 2.6,
+                      "loaf": 3.0, "roll": 2.4, "scratch": 2.4}
 
 FPS = {
     "idle": 1.8,
@@ -207,14 +211,14 @@ class OrangeCatPet:
             if left_frames:
                 loaded["walk_left"] = left_frames
         for state in SEQUENCE_STATES:
-            with Image.open(resource_path(f"{state}_sequence.png")) as source:
+            with Image.open(resource_path(f"{state}_smooth.png")) as source:
                 sequence = source.convert("RGBA")
-            if sequence.size != (CELL_W * 8, CELL_H):
+            if sequence.size != (SEQUENCE_W * SEQUENCE_FRAMES, CELL_H):
                 raise ValueError(f"动作图集尺寸错误：{state}")
             loaded[state] = []
-            for column in range(8):
-                frame = sequence.crop((column * CELL_W, 0, (column + 1) * CELL_W, CELL_H))
-                frame = frame.resize(target, Image.Resampling.LANCZOS)
+            for column in range(SEQUENCE_FRAMES):
+                frame = sequence.crop((column * SEQUENCE_W, 0, (column + 1) * SEQUENCE_W, CELL_H))
+                frame = frame.resize((round(SEQUENCE_W * self.scale), target[1]), Image.Resampling.LANCZOS)
                 frame.putalpha(frame.getchannel("A").point(alpha_lut))
                 loaded[state].append(ImageTk.PhotoImage(frame))
         return loaded
@@ -275,7 +279,7 @@ class OrangeCatPet:
             c.itemconfigure(tag, state="normal" if active else "hidden")
 
     def _update_window_size(self) -> None:
-        self.window_w = round(CELL_W * self.scale + 44)
+        self.window_w = round(SEQUENCE_W * self.scale + 44)
         self.window_h = round(CELL_H * self.scale + 28)
 
     def _load_settings(self) -> dict:
@@ -441,7 +445,10 @@ class OrangeCatPet:
             }
             low, high = ranges[state]
             duration = random.uniform(low, high)
-        self.state_duration = duration
+        # The source sequences were being stretched across up to 12 seconds,
+        # making each key pose hang unnaturally. Play the prepared in-between
+        # frames at a consistent motion speed, regardless of the menu duration.
+        self.state_duration = SEQUENCE_DURATIONS.get(state, duration)
         # New drink and litter sequences already include their own props.
         self.canvas.itemconfigure("bowl", state="hidden")
         self.canvas.itemconfigure("litter", state="hidden")
@@ -508,9 +515,10 @@ class OrangeCatPet:
             elapsed = now - self.state_started
             self._update_frame(elapsed, forced_state="idle")
 
-        moving = not self.paused and not self.dragging and self.state in {
-            "walk_left", "walk_right", "jump", "play"
-        }
+        moving = not self.paused and not self.dragging and (
+            self.state in {"walk_left", "walk_right", "jump", "play"}
+            or self.state in SEQUENCE_STATES
+        )
         self.root.after(TICK_MS if moving else IDLE_TICK_MS, self._tick)
 
     def _update_needs(self, dt: float) -> None:

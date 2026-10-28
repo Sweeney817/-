@@ -22,3 +22,9 @@
 在 Windows 上安装 Python 和 Pillow 后，可运行 `python app.py`。翻译所需的 OCR 组件为 `rapidocr_onnxruntime`。运行 `powershell -ExecutionPolicy Bypass -File .\build.ps1` 可安装打包依赖并生成 EXE；也可通过环境变量 `ORANGE_CAT_PYTHON` 指定 Python 可执行文件。打包使用仓库中现有的图集，不需要重新生成素材。
 
 开发检查：运行 `python -m unittest test_pet`；`python verify_pet.py` 需要交互式 Windows 桌面，并会生成截图和验证结果。
+
+## 在线更新与发布
+
+打包版启动后会在后台检查 GitHub Release；也可右键选择“检查更新”。发现新版本时可选择下载并安装，程序会校验 SHA256、关闭并重启，原有设置保留。需要网络和 EXE 所在目录的写入权限；校验值用于检查下载完整性，并非代码签名。
+
+发布新版本时，将 `version.py` 的版本号递增并提交到 `main`。GitHub Actions 会构建 Windows EXE，创建对应的 `v版本号` Release，并上传 `OrangeCatDesktopPet.exe` 和 `OrangeCatDesktopPet.exe.sha256`。仓库需要启用 Actions 并允许工作流写入仓库；具体状态请查看 Actions。也可手动运行发布工作流，但同版本的 Release 已存在时不会覆盖它。

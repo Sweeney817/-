@@ -16,6 +16,7 @@ from tkinter import messagebox
 from PIL import Image, ImageOps, ImageTk
 
 from screenshot_tool import ScreenshotController
+from updater import UpdateController
 
 
 APP_NAME = "OrangeCatDesktopPet"
@@ -149,6 +150,7 @@ class OrangeCatPet:
         self.drag_origin = (0.0, 0.0)
         self.topmost_var = tk.BooleanVar(value=self.settings.get("topmost", True))
         self.autostart_var = tk.BooleanVar(value=self._autostart_enabled())
+        self.updater = UpdateController(self)
         self._build_menu()
         self._bind_controls()
         self.screenshot_tool = ScreenshotController(self)
@@ -162,6 +164,7 @@ class OrangeCatPet:
         self._set_window_position(self.x, self.base_y)
         self._enter_state("idle", 2.4)
         self.root.after(TICK_MS, self._tick)
+        self.root.after(6000, lambda: self.updater.check(automatic=True))
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
 
     def _load_frames(self) -> dict[str, list[ImageTk.PhotoImage]]:
@@ -252,6 +255,7 @@ class OrangeCatPet:
         self.menu.add_command(label="给它喝水", command=lambda: self._interact("drink", 6.0))
         self.menu.add_command(label="让它休息", command=lambda: self._interact("rest", 10.0))
         self.menu.add_command(label="和它打招呼", command=lambda: self._interact("wave", 3.6))
+        self.menu.add_command(label="检查更新", command=self.updater.check)
         size_menu = tk.Menu(self.menu, tearoff=False)
         size_menu.add_command(label="迷你", command=lambda: self._set_scale(0.5))
         size_menu.add_command(label="很小", command=lambda: self._set_scale(0.65))
@@ -534,6 +538,7 @@ class OrangeCatPet:
 
     def quit(self) -> None:
         self._save_settings()
+        self.updater.close()
         self.screenshot_tool.close()
         self.root.destroy()
 

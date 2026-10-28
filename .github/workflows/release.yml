@@ -1,0 +1,31 @@
+name: Build and release desktop pet
+on:
+  push:
+    branches: [main]
+    paths: [version.py]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build executable
+        shell: pwsh
+        run: ./build.ps1
+      - name: Publish version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = python -c "from version import APP_VERSION; print(APP_VERSION)"
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
+          $exe = 'dist/OrangeCatDesktopPet.exe'
+          $hash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+          [System.IO.File]::WriteAllText("$exe.sha256", "$hash  OrangeCatDesktopPet.exe`n", [System.Text.Encoding]::ASCII)
+          gh release create "v$version" $exe "$exe.sha256" --title "橘猫桌面宠物 v$version" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

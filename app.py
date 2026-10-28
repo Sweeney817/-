@@ -44,6 +44,8 @@ ROW_FRAMES = {
     "drink": (7, 4),
 }
 
+SEQUENCE_STATES = ("litter", "drink", "stretch", "loaf", "roll", "scratch")
+
 FPS = {
     "idle": 1.8,
     "walk_right": 5.2,
@@ -204,6 +206,17 @@ class OrangeCatPet:
             loaded[state] = state_frames
             if left_frames:
                 loaded["walk_left"] = left_frames
+        for state in SEQUENCE_STATES:
+            with Image.open(resource_path(f"{state}_sequence.png")) as source:
+                sequence = source.convert("RGBA")
+            if sequence.size != (CELL_W * 8, CELL_H):
+                raise ValueError(f"动作图集尺寸错误：{state}")
+            loaded[state] = []
+            for column in range(8):
+                frame = sequence.crop((column * CELL_W, 0, (column + 1) * CELL_W, CELL_H))
+                frame = frame.resize(target, Image.Resampling.LANCZOS)
+                frame.putalpha(frame.getchannel("A").point(alpha_lut))
+                loaded[state].append(ImageTk.PhotoImage(frame))
         return loaded
 
     def _create_water_bowl(self) -> None:
@@ -302,6 +315,10 @@ class OrangeCatPet:
         self.menu.add_command(label="让它休息", command=lambda: self._interact("rest", 10.0))
         self.menu.add_command(label="和它打招呼", command=lambda: self._interact("wave", 3.6))
         self.menu.add_command(label="去猫砂盆", command=lambda: self._interact("litter", LITTER_DURATION))
+        self.menu.add_command(label="伸懒腰", command=lambda: self._interact("stretch", 6.0))
+        self.menu.add_command(label="揣手休息", command=lambda: self._interact("loaf", 8.0))
+        self.menu.add_command(label="打滚", command=lambda: self._interact("roll", 6.0))
+        self.menu.add_command(label="挠痒", command=lambda: self._interact("scratch", 6.0))
         self.menu.add_command(label="检查更新", command=self.updater.check)
         size_menu = tk.Menu(self.menu, tearoff=False)
         size_menu.add_command(label="迷你", command=lambda: self._set_scale(0.5))
@@ -339,8 +356,6 @@ class OrangeCatPet:
         self.canvas.coords(self.image_item, self.window_w // 2, self.window_h - 4)
         self._position_water_bowl()
         self._position_litter_box()
-        if self.state == "litter" and not self.paused:
-            self._update_litter_box(time.perf_counter() - self.state_started)
         self._clamp_position()
         self.root.geometry(f"{self.window_w}x{self.window_h}")
         self.root.update_idletasks()
@@ -419,14 +434,17 @@ class OrangeCatPet:
                 "play": (4.2, 7.2),
                 "drink": (5.5, 8.5),
                 "litter": (LITTER_DURATION, LITTER_DURATION),
+                "stretch": (5.0, 7.0),
+                "loaf": (8.0, 12.0),
+                "roll": (5.0, 7.0),
+                "scratch": (4.0, 6.0),
             }
             low, high = ranges[state]
             duration = random.uniform(low, high)
         self.state_duration = duration
-        self.canvas.itemconfigure("bowl", state="normal" if state == "drink" else "hidden")
-        self.canvas.itemconfigure("litter", state="normal" if state == "litter" else "hidden")
-        if state == "litter":
-            self._update_litter_box(0)
+        # New drink and litter sequences already include their own props.
+        self.canvas.itemconfigure("bowl", state="hidden")
+        self.canvas.itemconfigure("litter", state="hidden")
         if state == "play":
             self.play_streak += 1
         elif state not in {"jump", "wave"}:
@@ -443,10 +461,10 @@ class OrangeCatPet:
             self._enter_state("rest")
             return
 
-        choices = ["walk", "idle", "observe", "play", "jump", "wave"]
-        weights = [30, 22, 14, 16, 9, 9]
+        choices = ["walk", "idle", "observe", "play", "jump", "wave", "stretch", "loaf", "roll", "scratch"]
+        weights = [24, 15, 10, 12, 6, 6, 7, 7, 7, 6]
         if self.state.startswith("walk"):
-            weights = [16, 30, 18, 15, 11, 10]
+            weights = [12, 22, 12, 12, 7, 7, 7, 8, 7, 6]
         action = random.choices(choices, weights=weights, k=1)[0]
         current_action = "walk" if self.state.startswith("walk") else self.state
         if action == current_action:
@@ -485,8 +503,6 @@ class OrangeCatPet:
                 self._choose_next_state()
                 elapsed = 0.0
             self._update_position(dt, elapsed)
-            if self.state == "litter":
-                self._update_litter_box(elapsed)
             self._update_frame(elapsed)
         elif self.paused:
             elapsed = now - self.state_started
@@ -540,10 +556,8 @@ class OrangeCatPet:
 
     def _update_frame(self, elapsed: float, forced_state: str | None = None) -> None:
         state = forced_state or self.state
-        if state == "litter":
-            state = "idle" if elapsed < 6.0 else "play"
         frames = self.frames[state]
-        if state == "jump":
+        if state == "jump" or state in SEQUENCE_STATES:
             progress = min(max(elapsed / max(self.state_duration, 0.01), 0.0), 1.0)
             index = min(int(progress * len(frames)), len(frames) - 1)
         else:

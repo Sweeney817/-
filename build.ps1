@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
     --name 'OrangeCatDesktopPet' `
     --icon $Icon `
     --collect-all rapidocr_onnxruntime `
-    --add-data "$Asset;assets" `
+    --add-data "$(Join-Path $Project 'assets');assets" `
     --distpath $Dist `
     --workpath (Join-Path $Project 'build') `
     --specpath $Project `

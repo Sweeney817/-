@@ -10,11 +10,11 @@ app.settings_path = lambda: QA / 'smoke-settings.json'
 pet = app.OrangeCatPet()
 results = {}
 try:
-    assert len(pet.frames) == 9
+    assert len(pet.frames) == 14
     for scale in (0.5, 0.8, 1.1):
         pet._set_scale(scale)
         for state, frames in pet.frames.items():
-            assert len(frames) == 4
+            assert len(frames) == (8 if state in app.SEQUENCE_STATES else 4)
             pet._enter_state(state, 1.4)
             for elapsed in (0.0, 0.35, 0.7, 1.05, 1.4):
                 pet._update_frame(elapsed)

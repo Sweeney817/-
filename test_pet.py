@@ -54,14 +54,12 @@ class PetTests(unittest.TestCase):
     def test_litter_visual_phases(self):
         pet = app.OrangeCatPet.__new__(app.OrangeCatPet)
         pet.canvas = Mock()
-        pet.scale, pet.window_w, pet.window_h = 1, 240, 236
-        pet._update_litter_box(1)
-        pet.canvas.itemconfigure.assert_any_call('litter_poop', state='hidden')
-        pet.canvas.reset_mock()
-        pet._update_litter_box(8)
-        pet.canvas.itemconfigure.assert_any_call('litter_poop', state='normal')
-        pet.canvas.itemconfigure.assert_any_call('litter_cover', state='normal')
-        pet.canvas.itemconfigure.assert_any_call('litter_grain_0', state='normal')
+        pet.state, pet.state_duration = 'litter', 12
+        pet.frames = {'litter': list(range(8))}
+        pet.image_item, pet.current_frame_key = 1, None
+        for elapsed, frame in ((0, 0), (6, 4), (12, 7)):
+            pet._update_frame(elapsed)
+            pet.canvas.itemconfigure.assert_called_with(1, image=frame)
 
 
 if __name__ == '__main__':

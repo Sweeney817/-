@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import queue
 import re
@@ -18,11 +17,11 @@ from urllib.request import Request, urlopen
 
 from version import APP_VERSION
 
-API = "https://api.github.com/repos/Sweeney817/-/releases/latest"
+RELEASES = "https://github.com/Sweeney817/-/releases"
 EXE_NAME = "OrangeCatDesktopPet.exe"
 HASH_NAME = EXE_NAME + ".sha256"
 MAX_DOWNLOAD = 1024 * 1024 * 1024
-HEADERS = {"User-Agent": "OrangeCatDesktopPet-updater", "Accept": "application/vnd.github+json"}
+HEADERS = {"User-Agent": "OrangeCatDesktopPet-updater"}
 
 
 def version_tuple(value: str) -> tuple[int, int, int]:
@@ -41,24 +40,27 @@ def read_url(url: str, limit: int) -> bytes:
 
 
 def release_info() -> dict | None:
-    release = json.loads(read_url(API, 2 * 1024 * 1024))
-    if release.get("draft") or release.get("prerelease"):
-        return None
-    tag = release.get("tag_name", "")
+    # GitHub's latest-release redirect points only to a published stable release.
+    # Unlike the anonymous REST API, it does not use its small hourly quota.
+    with urlopen(Request(f"{RELEASES}/latest", headers=HEADERS, method="HEAD"), timeout=25) as response:
+        final = urlparse(response.geturl())
+    match = re.fullmatch(r"/Sweeney817/-/releases/tag/(v\d+\.\d+\.\d+)", final.path)
+    if final.scheme != "https" or final.netloc != "github.com" or not match or final.query or final.fragment:
+        raise ValueError("无法验证最新发布版本")
+    tag = match.group(1)
     if version_tuple(tag) <= version_tuple(APP_VERSION):
         return None
-    assets = {a.get("name"): a for a in release.get("assets", [])}
-    for name in (EXE_NAME, HASH_NAME):
-        asset = assets.get(name, {})
-        url = asset.get("browser_download_url", "")
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.hostname != "github.com" or not parsed.path.startswith("/Sweeney817/-/releases/download/"):
-            raise ValueError(f"更新版本缺少有效的 {name}")
-    size = assets[EXE_NAME].get("size")
-    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_DOWNLOAD:
+    base = f"{RELEASES}/download/{tag}/"
+    exe, checksum = base + EXE_NAME, base + HASH_NAME
+    # Ask the asset server for the size so download progress remains accurate.
+    with urlopen(Request(exe, headers=HEADERS, method="HEAD"), timeout=25) as response:
+        length = response.headers.get("Content-Length", "")
+    if not length.isascii() or not length.isdigit():
         raise ValueError("更新文件大小无效")
-    return {"version": tag, "exe": assets[EXE_NAME]["browser_download_url"],
-            "hash": assets[HASH_NAME]["browser_download_url"], "size": size}
+    size = int(length)
+    if not 0 < size <= MAX_DOWNLOAD:
+        raise ValueError("更新文件大小无效")
+    return {"version": tag, "exe": exe, "hash": checksum, "size": size}
 
 
 def download_release(info: dict, progress=None) -> Path:

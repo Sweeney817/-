@@ -1,6 +1,5 @@
 import hashlib
 import io
-import json
 import shutil
 import unittest
 from unittest.mock import patch
@@ -14,23 +13,39 @@ class UpdaterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             updater.version_tuple("v1.2.0-beta")
 
-    def test_release_requires_assets_from_own_repository(self):
-        base = "https://github.com/Sweeney817/-/releases/download/v1.0.1/"
-        release = {"tag_name": "v1.0.1", "assets": [
-            {"name": updater.EXE_NAME, "browser_download_url": base + updater.EXE_NAME, "size": 3},
-            {"name": updater.HASH_NAME, "browser_download_url": base + updater.HASH_NAME},
-        ]}
-        with patch.object(updater, "APP_VERSION", "1.0.0"), patch.object(updater, "read_url", return_value=json.dumps(release).encode()):
-            self.assertEqual(updater.release_info()["size"], 3)
-        release["assets"][0]["browser_download_url"] = "https://example.com/evil.exe"
-        with patch.object(updater, "APP_VERSION", "1.0.0"), patch.object(updater, "read_url", return_value=json.dumps(release).encode()):
-            with self.assertRaises(ValueError):
-                updater.release_info()
+    def test_latest_release_redirect_and_asset_size(self):
+        from unittest.mock import MagicMock
+        release = MagicMock()
+        release.__enter__.return_value.geturl.return_value = "https://github.com/Sweeney817/-/releases/tag/v1.0.1"
+        asset = MagicMock()
+        asset.__enter__.return_value.headers = {"Content-Length": "3"}
+        with patch.object(updater, "APP_VERSION", "1.0.0"), patch.object(updater, "urlopen", side_effect=[release, asset]) as urlopen:
+            info = updater.release_info()
+            self.assertEqual(info["size"], 3)
+            self.assertEqual(info["exe"], "https://github.com/Sweeney817/-/releases/download/v1.0.1/OrangeCatDesktopPet.exe")
+            self.assertTrue(all(call.args[0].get_method() == "HEAD" for call in urlopen.call_args_list))
 
-    def test_older_and_prerelease_versions_are_not_installed(self):
-        for release in ({"tag_name": "v0.9.0"}, {"tag_name": "v2.0.0", "prerelease": True}):
-            with patch.object(updater, "read_url", return_value=json.dumps(release).encode()):
-                self.assertIsNone(updater.release_info())
+    def test_invalid_redirect_rejected_and_old_release_ignored(self):
+        from unittest.mock import MagicMock
+        for url in ("https://example.com/Sweeney817/-/releases/tag/v2.0.0", "https://github.com/Sweeney817/-/releases/tag/v2.0.0-beta"):
+            response = MagicMock()
+            response.__enter__.return_value.geturl.return_value = url
+            with patch.object(updater, "urlopen", return_value=response), self.assertRaises(ValueError):
+                updater.release_info()
+        response = MagicMock()
+        response.__enter__.return_value.geturl.return_value = "https://github.com/Sweeney817/-/releases/tag/v0.9.0"
+        with patch.object(updater, "APP_VERSION", "1.0.0"), patch.object(updater, "urlopen", return_value=response):
+            self.assertIsNone(updater.release_info())
+
+    def test_invalid_size_rejected(self):
+        from unittest.mock import MagicMock
+        release = MagicMock()
+        release.__enter__.return_value.geturl.return_value = "https://github.com/Sweeney817/-/releases/tag/v2.0.0"
+        for length in ("", "0", str(updater.MAX_DOWNLOAD + 1)):
+            asset = MagicMock()
+            asset.__enter__.return_value.headers = {"Content-Length": length}
+            with patch.object(updater, "APP_VERSION", "1.0.0"), patch.object(updater, "urlopen", side_effect=[release, asset]), self.assertRaises(ValueError):
+                updater.release_info()
 
     def test_download_verifies_hash_and_size(self):
         contents = b"new executable"

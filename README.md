@@ -33,4 +33,6 @@
 
 打包版启动后会在后台检查 GitHub Release；也可右键选择“检查更新”。发现新版本时可选择下载并安装，程序会校验 SHA256、关闭并重启，原有设置保留。需要网络和 EXE 所在目录的写入权限；校验值用于检查下载完整性，并非代码签名。
 
+更新检查使用 GitHub Release 页面，不消耗 GitHub REST API 的匿名请求配额。
+
 发布新版本时，将 `version.py` 的版本号递增并提交到 `main`。GitHub Actions 会构建 Windows EXE，创建对应的 `v版本号` Release，并上传 `OrangeCatDesktopPet.exe` 和 `OrangeCatDesktopPet.exe.sha256`。仓库需要启用 Actions 并允许工作流写入仓库；具体状态请查看 Actions。也可手动运行发布工作流，但同版本的 Release 已存在时不会覆盖它。
